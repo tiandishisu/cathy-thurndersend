@@ -1,0 +1,5 @@
+{
+  "name": "ThunderSend - Outlook Bulk Mailer",
+  "description": "A Thunderbird-inspired bulk email sender for Outlook with template support, CSV import, and timezone-aware scheduling.",
+  "requestFramePermissions": []
+}
