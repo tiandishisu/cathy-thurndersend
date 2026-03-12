@@ -47,13 +47,16 @@ async function startServer() {
 
   // 3. SMTP Verification & Manual Account Add
   app.post("/api/accounts/verify-smtp", async (req, res) => {
-    const { email, password, smtpHost, smtpPort, imapHost, imapPort } = req.body;
-    console.log(`Verifying SMTP for ${email} on ${smtpHost}:${smtpPort}`);
+    const { email, password, smtpHost, smtpPort } = req.body;
+    const host = smtpHost || "smtp.partner.outlook.cn";
+    const port = parseInt(smtpPort) || 587;
+    
+    console.log(`[SMTP Verify] Attempting connection for ${email} to ${host}:${port}`);
 
     const transporter = nodemailer.createTransport({
-      host: smtpHost || "smtp.partner.outlook.cn",
-      port: parseInt(smtpPort) || 587,
-      secure: parseInt(smtpPort) === 465,
+      host: host,
+      port: port,
+      secure: port === 465,
       auth: {
         user: email,
         pass: password,
@@ -63,27 +66,42 @@ async function startServer() {
       socketTimeout: 45000,
       tls: {
         rejectUnauthorized: false,
-        minVersion: 'TLSv1.2' // Microsoft 365 requires TLS 1.2+
+        minVersion: 'TLSv1.2'
       },
-      requireTLS: parseInt(smtpPort) === 587,
+      requireTLS: port === 587,
       debug: true,
       logger: true
     });
 
     try {
-      await transporter.verify();
-      console.log(`SMTP Verification Successful for ${email}`);
+      // Use a promise with timeout to ensure we don't hang forever
+      const verifyPromise = transporter.verify();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Verification timed out after 30s. This often happens on cloud providers like Render when outbound SMTP ports are restricted.")), 31000)
+      );
+
+      await Promise.race([verifyPromise, timeoutPromise]);
+      
+      console.log(`[SMTP Verify] Success for ${email}`);
       res.json({ success: true, message: "SMTP connection verified" });
     } catch (error: any) {
-      console.error("SMTP Verify Error:", error);
-      let errorMessage = error.message || "Failed to connect to SMTP server";
+      console.error(`[SMTP Verify] Failed for ${email}:`, error);
       
-      // Specific handling for Microsoft 535 error
-      if (errorMessage.includes('535 5.7.139')) {
-        errorMessage = "Authentication failed (535 5.7.139). For Outlook/Office 365, please ensure 'Authenticated SMTP' is enabled in your Microsoft 365 Admin Center for this mailbox, or use an 'App Password' if MFA is enabled.";
+      let friendlyMessage = error.message || "Unknown SMTP error";
+      
+      if (error.code === 'ETIMEDOUT') {
+        friendlyMessage = `Connection timed out to ${host}:${port}. Render's free tier sometimes restricts outbound traffic to common SMTP ports. Try port 465 or use OAuth instead.`;
+      } else if (error.code === 'ECONNREFUSED') {
+        friendlyMessage = `Connection refused by ${host}:${port}. Please verify the server address and port.`;
+      } else if (friendlyMessage.includes('535 5.7.139')) {
+        friendlyMessage = "Authentication failed (535 5.7.139). Please ensure 'Authenticated SMTP' is enabled in your Microsoft 365 Admin Center, or use an 'App Password' if MFA is enabled.";
       }
-      
-      res.status(400).json({ success: false, error: errorMessage });
+
+      res.status(500).json({ 
+        success: false, 
+        error: friendlyMessage,
+        code: error.code
+      });
     }
   });
 
