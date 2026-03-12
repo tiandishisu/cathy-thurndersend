@@ -58,9 +58,9 @@ async function startServer() {
         user: email,
         pass: password,
       },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 45000,
       tls: {
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2' // Microsoft 365 requires TLS 1.2+
